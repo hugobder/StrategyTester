@@ -1,9 +1,12 @@
 import streamlit as st
 import plotly.express as px
 
+
 from data import load_ohlcv, resample_ohlcv
 from strategies.sma_cross import sma_cross_position
-from backtest.execution import simulate_next_open
+from strategies.donchian_atr import donchian_atr_position
+
+from backtest.execution import simulate_next_open_risk_based
 from backtest.metrics import compute_report
 
 
@@ -15,12 +18,26 @@ with st.sidebar:
     path = st.text_input("CSV/Parquet path", "data/EURUSD_5m.csv")
     resample_rule = st.selectbox("Resample (optional)", ["(none)", "5min", "15min", "1H", "1D"], index=0)
 
-    st.header("Strategy: SMA Cross")
-    fast = st.slider("Fast SMA", 2, 200, 20)
-    slow = st.slider("Slow SMA", 5, 400, 50)
+    st.header("Strategy")
+    strategy = st.selectbox("Strategy", ["SMA Cross", "Donchian + ATR"], index=0)
+
+    if strategy == "SMA Cross":
+        fast = st.slider("Fast SMA", 2, 200, 20)
+        slow = st.slider("Slow SMA", 5, 400, 50)
+
+    elif strategy == "Donchian + ATR":
+        breakout_n = st.slider("Donchian breakout (bars)", 5, 200, 20)
+        atr_n = st.slider("ATR period", 5, 100, 14)
+        atr_mult = st.number_input("ATR multiplier", value=2.0, step=0.1)
+        trend_sma = st.slider("Trend filter SMA (0 = off)", 0, 400, 200)
+
+
+    st.header("Risk")
+    initial_capital = st.number_input("Initial Capital", value=10_000.0, step=1000.0)
+    risk_per_trade = st.number_input("Risk per trade (%)", value=1.0, step=0.1) / 100.0
+    stop_distance = st.number_input("Stop distance (price units)", value=100.0, step=10.0)
 
     st.header("Execution")
-    qty = st.number_input("Qty", min_value=0.0001, value=1.0, step=1.0)
     spread = st.number_input("Spread (price units)", min_value=0.0, value=0.0, step=0.0001, format="%.6f")
     slippage = st.number_input("Slippage (price units)", min_value=0.0, value=0.0, step=0.0001, format="%.6f")
 
@@ -32,16 +49,38 @@ if run:
     if resample_rule != "(none)":
         df = resample_ohlcv(df, resample_rule)
 
-    pos = sma_cross_position(df, fast=fast, slow=slow)
-    trades = simulate_next_open(df, pos, qty=qty, spread=spread, slippage=slippage)
-    report = compute_report(trades)
+    if strategy == "SMA Cross":
+        pos = sma_cross_position(df, fast=fast, slow=slow)
+        stop_dist = stop_distance  # fixed float from sidebar
+
+    else:  # Donchian + ATR
+        pos, stop_dist = donchian_atr_position(
+            df,
+            breakout_n=breakout_n,
+            atr_n=atr_n,
+            atr_mult=atr_mult,
+            trend_filter_sma=(None if trend_sma == 0 else trend_sma),
+        )
+
+    trades = simulate_next_open_risk_based(
+        df,
+        pos,
+        initial_capital=initial_capital,
+        risk_per_trade=risk_per_trade,
+        stop_distance=stop_dist,   # float for SMA, Series for Donchian
+        spread=spread,
+        slippage=slippage,
+    )
+
+    report = compute_report(trades, initial_capital)
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Net PnL", f"{report['net_pnl']:.4f}")
-    c2.metric("Max Drawdown", f"{report['max_dd']:.2%}")
-    c3.metric("Win Rate", f"{report['win_rate']:.2%}")
+    c1.metric("Net PnL", f"{report['net_pnl']:.2f}")
+    c2.metric("Return", f"{report['return_pct']:.2%}")
+    c3.metric("Max Drawdown", f"{report['max_dd']:.2%}")
     c4.metric("Profit Factor", f"{report['profit_factor']:.2f}")
-    c5.metric("Expectancy", f"{report['expectancy']:.4f}")
+    c5.metric("Expectancy (R)", f"{report['expectancy_r']:.2f}")
+
 
     left, right = st.columns(2)
 

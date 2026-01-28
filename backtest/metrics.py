@@ -2,15 +2,14 @@ import numpy as np
 import pandas as pd
 
 
-def compute_report(trades: pd.DataFrame) -> dict:
+def compute_report(trades: pd.DataFrame, initial_capital: float) -> dict:
     if trades is None or trades.empty:
         return {
             "net_pnl": 0.0,
+            "return_pct": 0.0,
             "win_rate": 0.0,
             "profit_factor": 0.0,
-            "avg_win": 0.0,
-            "avg_loss": 0.0,
-            "expectancy": 0.0,
+            "expectancy_r": 0.0,
             "max_dd": 0.0,
             "equity": pd.Series(dtype=float),
             "drawdown": pd.Series(dtype=float),
@@ -21,33 +20,33 @@ def compute_report(trades: pd.DataFrame) -> dict:
     t["exit_time"] = pd.to_datetime(t["exit_time"], utc=True)
     t = t.sort_values("exit_time")
 
-    equity = t.set_index("exit_time")["pnl"].cumsum()
-    peak = equity.cummax()
-    dd = (equity - peak) / peak.replace(0, np.nan)
-    max_dd = float(dd.min()) if len(dd) else 0.0
+    equity = pd.Series(
+        [initial_capital] + t["pnl"].cumsum().add(initial_capital).tolist(),
+        index=[t["exit_time"].iloc[0]] + t["exit_time"].tolist(),
+        )
 
-    wins = t[t["pnl"] > 0]["pnl"]
-    losses = t[t["pnl"] < 0]["pnl"]
+    peak = equity.cummax()
+    dd = (equity - peak) / peak
+    max_dd = float(dd.min())
+
+    wins = t[t["pnl"] > 0]
+    losses = t[t["pnl"] < 0]
 
     win_rate = float((t["pnl"] > 0).mean())
-    avg_win = float(wins.mean()) if len(wins) else 0.0
-    avg_loss = float(losses.mean()) if len(losses) else 0.0  # negative
-    loss_rate = 1.0 - win_rate
-    expectancy = (win_rate * avg_win) + (loss_rate * avg_loss)
+    expectancy_r = float(t["r_multiple"].mean())
 
-    gross_profit = float(wins.sum()) if len(wins) else 0.0
-    gross_loss = float(abs(losses.sum())) if len(losses) else 0.0
-    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else 0.0
+    gross_profit = wins["pnl"].sum()
+    gross_loss = abs(losses["pnl"].sum())
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
 
     return {
         "net_pnl": float(t["pnl"].sum()),
+        "return_pct": float((equity.iloc[-1] - initial_capital) / initial_capital),
         "win_rate": win_rate,
         "profit_factor": float(profit_factor),
-        "avg_win": float(avg_win),
-        "avg_loss": float(avg_loss),
-        "expectancy": float(expectancy),
-        "max_dd": float(max_dd),
+        "expectancy_r": expectancy_r,
+        "max_dd": max_dd,
         "equity": equity,
-        "drawdown": dd.fillna(0.0),
+        "drawdown": dd,
         "trades": t.reset_index(drop=True),
     }
