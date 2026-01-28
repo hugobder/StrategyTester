@@ -1,3 +1,6 @@
 /.idea
 /download/*
 */__pycache
+/__pycache__
+/backtest/__pycache__
+/strategies/__pycache__
