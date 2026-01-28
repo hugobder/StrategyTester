@@ -1,10 +1,11 @@
 import streamlit as st
 import plotly.express as px
-
+import numpy as np
 
 from data import load_ohlcv, resample_ohlcv
 from strategies.sma_cross import sma_cross_position
 from strategies.donchian_atr import donchian_atr_position
+from strategies.volatility_activity_surface import volatility_activity_surface
 
 from backtest.execution import simulate_next_open_risk_based
 from backtest.metrics import compute_report
@@ -19,7 +20,7 @@ with st.sidebar:
     resample_rule = st.selectbox("Resample (optional)", ["(none)", "5min", "15min", "1H", "1D"], index=0)
 
     st.header("Strategy")
-    strategy = st.selectbox("Strategy", ["SMA Cross", "Donchian + ATR"], index=0)
+    strategy = st.selectbox("Strategy", ["SMA Cross", "Donchian + ATR", "Volatility Activity (3D)"], index=0)
 
     if strategy == "SMA Cross":
         fast = st.slider("Fast SMA", 2, 200, 20)
@@ -31,6 +32,11 @@ with st.sidebar:
         atr_mult = st.number_input("ATR multiplier", value=2.0, step=0.1)
         trend_sma = st.slider("Trend filter SMA (0 = off)", 0, 400, 200)
 
+    elif strategy == "Volatility Activity (3D)":
+        max_lag = st.slider("Max lag", 5, 200, 60)
+        window = st.slider("Rolling window", 50, 2000, 200)
+        stride = st.slider("Stride (speed vs detail)", 1, 50, 5)
+        mode = st.selectbox("Activity mode", ["abs", "sq"], index=0)
 
     st.header("Risk")
     initial_capital = st.number_input("Initial Capital", value=10_000.0, step=1000.0)
@@ -45,6 +51,40 @@ run = st.button("Run backtest")
 
 if run:
     df = load_ohlcv(path)
+
+    if strategy == "Volatility Activity (3D)":
+        lags, ticks, Z = volatility_activity_surface(
+            df,
+            max_lag=max_lag,
+            window=window,
+            stride=stride,
+            mode=mode,
+        )
+
+        st.subheader("Volatility Activity Surface (3D)")
+
+        # Plotly surface expects (y, x) mapping depending on how you pass arrays.
+        # We'll use: X=Lag, Y=Tick, Z=Activity
+        fig = px.surface(
+            x=lags,
+            y=ticks,
+            z=Z.T,  # transpose to match y rows, x cols
+            labels={"x": "Lag", "y": "Tick", "z": "Activity"},
+        )
+
+        # Make it look more like the “quant vibe”
+        fig.update_layout(
+            template="plotly_dark",
+            scene=dict(
+                xaxis_title="Lag",
+                yaxis_title="Tick",
+                zaxis_title="Activity",
+            ),
+            margin=dict(l=0, r=0, t=30, b=0),
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+        st.stop()
 
     if resample_rule != "(none)":
         df = resample_ohlcv(df, resample_rule)

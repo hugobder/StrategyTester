@@ -1,0 +1,9 @@
+services:
+  strategy-tester:
+    build: .
+    container_name: strategy-tester
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
