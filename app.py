@@ -1,5 +1,6 @@
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
 import numpy as np
 
 from data import load_ohlcv, resample_ohlcv
@@ -63,14 +64,8 @@ if run:
 
         st.subheader("Volatility Activity Surface (3D)")
 
-        # Plotly surface expects (y, x) mapping depending on how you pass arrays.
-        # We'll use: X=Lag, Y=Tick, Z=Activity
-        fig = px.surface(
-            x=lags,
-            y=ticks,
-            z=Z.T,  # transpose to match y rows, x cols
-            labels={"x": "Lag", "y": "Tick", "z": "Activity"},
-        )
+        # go.Surface expects z as a 2D array where rows correspond to y and cols to x
+        fig = go.Figure(data=[go.Surface(x=lags, y=ticks, z=Z.T)])
 
         # Make it look more like the “quant vibe”
         fig.update_layout(
